@@ -656,6 +656,9 @@ read_line_cb (GObject * source_object, GAsyncResult * res, gpointer user_data)
       } else {
         ok = FALSE;
       }
+    } else if (g_str_has_prefix (line, "+QUIT")) {
+      if (self->app_context.quit)
+        self->app_context.quit (self->app_context.app);
     } else if (g_str_has_prefix (line, "+NETCLOCK ")) {
       gchar **command;
 

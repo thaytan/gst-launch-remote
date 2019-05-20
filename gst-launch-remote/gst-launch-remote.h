@@ -33,6 +33,7 @@ typedef struct {
   void (*set_current_position) (gint position, gint duration, gpointer app);
   void (*initialized) (gpointer app);
   void (*media_size_changed) (gint width, gint height, gpointer app);
+  void (*quit) (gpointer app);
 } GstLaunchRemoteAppContext;
 
 typedef struct {

@@ -1,0 +1,5 @@
+To cross-compile this utility for the Onion Omega, run:
+
+sh xCompile.sh -buildroot /root/source/  
+
+in a docker development shell

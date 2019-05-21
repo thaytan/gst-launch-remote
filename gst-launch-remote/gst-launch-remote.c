@@ -24,6 +24,10 @@
 #include <stdlib.h>
 #include <gst/net/net.h>
 
+#if defined(__linux__) || defined (__unix__)
+#include <gio/gunixoutputstream.h>
+#endif
+
 GST_DEBUG_CATEGORY_STATIC (debug_category);
 #define GST_CAT_DEFAULT debug_category
 
@@ -444,17 +448,17 @@ check_media_size (GstLaunchRemote * self)
     return;
 
   caps = gst_pad_get_current_caps (video_sink_pad);
+  if (caps) {
+    if (gst_video_info_from_caps (&info, caps)) {
+      info.width = info.width * info.par_n / info.par_d;
+      GST_DEBUG ("Media size is %dx%d, notifying application", info.width,
+          info.height);
 
-  if (gst_video_info_from_caps (&info, caps)) {
-    info.width = info.width * info.par_n / info.par_d;
-    GST_DEBUG ("Media size is %dx%d, notifying application", info.width,
-        info.height);
-
-    self->app_context.media_size_changed (info.width, info.height,
-        self->app_context.app);
-  }
-
-  gst_caps_unref (caps);
+      self->app_context.media_size_changed (info.width, info.height,
+          self->app_context.app);
+    }
+    gst_caps_unref (caps);
+  } 
   gst_object_unref (video_sink_pad);
 }
 
@@ -557,25 +561,11 @@ write_to_remote (GstLaunchRemote * self, const gchar * format, ...)
 }
 
 static void
-read_line_cb (GObject * source_object, GAsyncResult * res, gpointer user_data)
+handle_incoming_command (GstLaunchRemote *self, gchar *line)
 {
-  GDataInputStream *distream = G_DATA_INPUT_STREAM (source_object);
-  GstLaunchRemote *self = user_data;
-  gchar *line, *outline;
-  gsize length, bytes_written;
+  gchar *outline;
+  gsize bytes_written;
   GError *err = NULL;
-
-  line = g_data_input_stream_read_line_finish (distream, res, &length, &err);
-  if (!line) {
-    if (err) {
-      GST_ERROR ("ERROR: Reading line: %s", err->message);
-    } else {
-      GST_WARNING ("EOF");
-    }
-    g_clear_error (&err);
-    handle_eof (self);
-    return;
-  }
 
   GST_DEBUG ("Received command: %s", line);
   if (line) {
@@ -760,7 +750,6 @@ read_line_cb (GObject * source_object, GAsyncResult * res, gpointer user_data)
   } else {
     outline = g_strdup ("NOK\n");
   }
-  g_free (line);
 
   if (!g_output_stream_write_all (self->ostream, outline, strlen (outline),
           &bytes_written, NULL, &err)) {
@@ -772,12 +761,36 @@ read_line_cb (GObject * source_object, GAsyncResult * res, gpointer user_data)
     return;
   }
   g_free (outline);
+}
+
+static void
+read_line_cb (GObject * source_object, GAsyncResult * res, gpointer user_data)
+{
+  GDataInputStream *distream = G_DATA_INPUT_STREAM (source_object);
+  GstLaunchRemote *self = user_data;
+  gchar *line;
+  gsize length;
+  GError *err = NULL;
+
+  line = g_data_input_stream_read_line_finish (distream, res, &length, &err);
+  if (!line) {
+    if (err) {
+      GST_ERROR ("ERROR: Reading line: %s", err->message);
+    } else {
+      GST_WARNING ("EOF");
+    }
+    g_clear_error (&err);
+    handle_eof (self);
+    return;
+  }
+  handle_incoming_command (self, line);
+  g_free (line);
 
   g_data_input_stream_read_line_async (distream, 0, NULL, read_line_cb, self);
 }
 
 static gboolean
-incoming_cb (GSocketService * service, GSocketConnection * connection,
+socket_incoming_cb (GSocketService * service, GSocketConnection * connection,
     GObject * source_object, gpointer user_data)
 {
   GstLaunchRemote *self = user_data;
@@ -793,12 +806,36 @@ incoming_cb (GSocketService * service, GSocketConnection * connection,
   stream = G_IO_STREAM (connection);
   istream = g_io_stream_get_input_stream (stream);
   self->distream = g_data_input_stream_new (istream);
-  self->ostream = g_io_stream_get_output_stream (stream);
+  if (self->ostream)
+    g_object_unref (self->ostream);
+  self->ostream = g_object_ref (g_io_stream_get_output_stream (stream));
 
   g_data_input_stream_read_line_async (self->distream, 0, NULL, read_line_cb,
       self);
 
   return TRUE;
+}
+
+static gboolean
+stdio_incoming_cb (GIOChannel * ioc, GIOCondition cond, gpointer user_data)
+{
+  GstLaunchRemote *self = user_data;
+  GError *err = NULL;
+
+  if (cond & G_IO_IN) {
+    GIOStatus status = g_io_channel_read_line_string (ioc, self->line_buf, NULL, &err);
+    if (err != NULL) {
+     GST_ERROR ("ERROR: Can't read incoming command: %s", err->message);
+     g_clear_error (&err);
+    }
+    if (status == G_IO_STATUS_ERROR)
+      return FALSE;
+    if (status == G_IO_STATUS_NORMAL) {
+      handle_incoming_command (self, self->line_buf->str);
+    }
+  }
+
+  return TRUE;                  /* call us again */
 }
 
 static void
@@ -914,6 +951,7 @@ gst_launch_remote_main (gpointer user_data)
     G_UNLOCK (debug_sockets);
   }
 
+#if 0
   self->service = g_socket_service_new ();
 
   bind_iaddr = g_inet_address_new_any (G_SOCKET_FAMILY_IPV4);
@@ -928,15 +966,35 @@ gst_launch_remote_main (gpointer user_data)
     self->service = NULL;
   } else {
     GST_DEBUG ("Listening on port %u", PORT);
-    g_signal_connect (self->service, "incoming", G_CALLBACK (incoming_cb),
+    g_signal_connect (self->service, "incoming", G_CALLBACK (socket_incoming_cb),
         self);
     g_socket_service_start (self->service);
   }
 
   g_object_unref (bind_addr);
   g_object_unref (bind_iaddr);
+#endif
 
-  gst_launch_remote_set_pipeline (self, "fakesrc ! fakesink");
+  {
+    GSource *ioc_source;
+    GIOChannel *ioc;
+
+    self->line_buf = g_string_sized_new (128);
+    ioc = g_io_channel_unix_new (STDIN_FILENO);
+
+    //g_io_channel_set_encoding (ioc, NULL, NULL);
+    //g_io_channel_set_buffered (ioc, FALSE);
+
+    ioc_source = g_io_create_watch (ioc, G_IO_IN);
+    g_source_set_callback (ioc_source, (GSourceFunc) (stdio_incoming_cb), self, NULL);
+    g_source_attach (ioc_source, self->context);
+    g_source_unref (ioc_source);
+    g_io_channel_unref (ioc);
+
+    self->ostream = g_unix_output_stream_new (STDOUT_FILENO, FALSE);
+  }
+
+  // gst_launch_remote_set_pipeline (self, "fakesrc ! fakesink");
 
   timeout_source = g_timeout_source_new (250);
   g_source_set_callback (timeout_source, (GSourceFunc) update_position_cb, self,
@@ -960,6 +1018,18 @@ gst_launch_remote_main (gpointer user_data)
   if (self->connection) {
     g_object_unref (self->distream);
     g_object_unref (self->connection);
+  }
+
+  if (self->ostream) {
+    g_object_unref (self->ostream);
+  }
+
+  if (self->stdio_watch_id) {
+    g_source_remove (self->stdio_watch_id);
+  }
+
+  if (self->line_buf) {
+    g_string_free (self->line_buf, TRUE);
   }
 
   if (self->debug_socket) {
@@ -1004,18 +1074,19 @@ gst_launch_remote_init (gpointer user_data)
 {
   GST_DEBUG_CATEGORY_INIT (debug_category, "gst-launch-remote", 0,
       "GstLaunchRemote");
-  gst_debug_set_threshold_for_name ("gst-launch-remote", GST_LEVEL_DEBUG);
+  gst_debug_set_threshold_for_name ("gst-launch-remote", GST_LEVEL_LOG);
 
+#if 0
   g_set_print_handler (priv_glib_print_handler);
   g_set_printerr_handler (priv_glib_printerr_handler);
   g_log_set_default_handler (priv_glib_log_handler, NULL);
 
   gst_debug_remove_log_function (gst_debug_log_default);
   gst_debug_remove_log_function_by_data (NULL);
-  gst_debug_add_log_function ((GstLogFunction) priv_gst_debug_logcat, NULL,
-      NULL);
+  gst_debug_add_log_function ((GstLogFunction) priv_gst_debug_logcat, NULL, NULL);
 
   gst_debug_set_active (FALSE);
+#endif
 
   start_time = gst_util_get_timestamp ();
 

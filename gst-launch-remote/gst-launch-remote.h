@@ -62,6 +62,9 @@ typedef struct {
   GOutputStream *ostream;
   GSocket *debug_socket;
 
+  GString *line_buf;
+  gulong stdio_watch_id;
+
   GstLaunchRemoteAppContext app_context;
 
   GstClockTime last_play_time;

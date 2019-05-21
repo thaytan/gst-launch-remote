@@ -1,5 +1,5 @@
-PKGS := gstreamer-video-1.0 gstreamer-base-1.0 gstreamer-net-1.0 gstreamer-1.0 glib-2.0
-CFLAGS := $(shell pkg-config --cflags $(PKGS))  -Wall
+PKGS := gstreamer-video-1.0 gstreamer-base-1.0 gstreamer-net-1.0 gstreamer-1.0 glib-2.0 gio-unix-2.0
+CFLAGS := $(shell pkg-config --cflags $(PKGS))  -Wall -ggdb
 LDFLAGS := $(shell pkg-config --libs $(PKGS)) -lm
 
 TARGETS = gst-launch-remote

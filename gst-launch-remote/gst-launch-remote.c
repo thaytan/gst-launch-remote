@@ -1076,7 +1076,6 @@ gst_launch_remote_init (gpointer user_data)
       "GstLaunchRemote");
   gst_debug_set_threshold_for_name ("gst-launch-remote", GST_LEVEL_LOG);
 
-#if 0
   g_set_print_handler (priv_glib_print_handler);
   g_set_printerr_handler (priv_glib_printerr_handler);
   g_log_set_default_handler (priv_glib_log_handler, NULL);
@@ -1086,7 +1085,6 @@ gst_launch_remote_init (gpointer user_data)
   gst_debug_add_log_function ((GstLogFunction) priv_gst_debug_logcat, NULL, NULL);
 
   gst_debug_set_active (FALSE);
-#endif
 
   start_time = gst_util_get_timestamp ();
 

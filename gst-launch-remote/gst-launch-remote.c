@@ -1101,12 +1101,13 @@ gst_launch_remote_new (const GstLaunchRemoteAppContext * ctx)
 
   self->app_context = *ctx;
   self->base_time = GST_CLOCK_TIME_NONE;
-  self->thread =
-      g_thread_new ("gst-launch-remote", gst_launch_remote_main, self);
   g_mutex_init (&self->lock);
 
   self->last_play_time = GST_CLOCK_TIME_NONE;
   self->last_eos_time = GST_CLOCK_TIME_NONE;
+
+  self->thread =
+      g_thread_new ("gst-launch-remote", gst_launch_remote_main, self);
 
   return self;
 }

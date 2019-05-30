@@ -951,10 +951,11 @@ gst_launch_remote_main (gpointer user_data)
     G_UNLOCK (debug_sockets);
   }
 
-#if 0
+#if 1
   self->service = g_socket_service_new ();
 
-  bind_iaddr = g_inet_address_new_any (G_SOCKET_FAMILY_IPV4);
+  //bind_iaddr = g_inet_address_new_any (G_SOCKET_FAMILY_IPV4);
+  bind_iaddr = g_inet_address_new_loopback (G_SOCKET_FAMILY_IPV4);
   bind_addr = g_inet_socket_address_new (bind_iaddr, PORT);
 
   if (!g_socket_listener_add_address (G_SOCKET_LISTENER
